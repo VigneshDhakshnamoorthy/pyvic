@@ -1,5 +1,5 @@
 import inspect
-from core.pyvic.base.test_base import Browser, get_driver, testcase
+from core.pyvic.base.test_base import Browser, beforetest, get_driver, testcase
 from time import sleep
 
 
@@ -20,11 +20,15 @@ def sample_4():
     assert 1 == 0
 
 
-@testcase(tag=["smoke"])
+@testcase()
 def sample_6():
     print("Executing sample_6")
     assert 1 == 1
 
-@tester
+@beforetest(tag=["smoke"])
 def sample_7():
-    print("dummy")
+    print(f"Before executing the")
+    
+@beforetest()
+def sample_8():
+    print(f"Before executing the")

@@ -20,7 +20,7 @@ def sample_3():
     raise Exception("My custom")
 
 
-@testcase(tag=["smoke"])
+@testcase()
 def sample_5():
     print("Executing sample_5")
     raise ValueError()

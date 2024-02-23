@@ -1,7 +1,9 @@
+import functools
 import inspect
 import os
 import ast
 import sys
+from time import sleep
 import traceback
 import concurrent.futures
 from selenium import webdriver
@@ -12,49 +14,68 @@ test_dir = os.path.join(project_dir, "tests")
 
 sys.path.append(test_dir)
 
+
 def browser():
     pass
 
-def get_driver(browser_name)-> Chrome | Edge | Firefox:
-    if browser_name.lower() == 'chrome':
+
+def get_driver(browser_name) -> Chrome | Edge | Firefox:
+    if browser_name.lower() == "chrome":
         chrome_options = webdriver.ChromeOptions()
         chrome_options.add_argument("--enable-chrome-browser-cloud-management")
         return webdriver.Chrome(options=chrome_options)
-    elif browser_name.lower() == 'firefox':
+    elif browser_name.lower() == "firefox":
         return webdriver.Firefox()
-    elif browser_name.lower() == 'edge':
+    elif browser_name.lower() == "edge":
         edge_options = webdriver.EdgeOptions()
         edge_options.add_argument("--enable-chrome-browser-cloud-management")
         return webdriver.Edge(options=edge_options)
     else:
         raise ValueError(f"unsupported browser - {browser_name}")
 
-def beforetest(func):
-    def wrapper(*args, **kwargs):
-        print(f"Before executing the {func.__name__} method")
-        try:
-            result = func(*args, **kwargs)
-        except AssertionError as ae:
-            if ae.args:
-                return None, ae.args[0]
-            else:
-                return None, traceback.format_exc()
-        except Exception as e:
-            return None, traceback.format_exc()
-        else:
-            return result, None
-    return wrapper
+beforetest_storage = {}
+beforetest_functions = []
+
+testcase_storage = {}
+testcase_functions = []
+
+
+def beforetest(tag: list[str] = None):
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            if tag is not None:
+                try:
+                    result = func(*args, **kwargs)
+                except AssertionError as ae:
+                    if ae.args:
+                        return None, ae.args[0]
+                    else:
+                        return None, traceback.format_exc()
+                except Exception as e:
+                    return None, traceback.format_exc()
+                else:
+                    return result, None
+                finally:
+                    print(f"Before executing the {func.__name__}")
+        wrapper._is_beforetest = True
+        if tag is not None:
+            beforetest_functions.append(wrapper)
+        return wrapper
+
+    return decorator
+
+
 
 
 def testcase(tag: list[str] = None, browser=None):
     def decorator(func):
         def wrapper(*args, **kwargs):
-            if tag is not None:               
+            if tag is not None:
                 if browser is not None:
-                    driver:Chrome | Edge | Firefox = get_driver(browser)
+                    driver: Chrome | Edge | Firefox = get_driver(browser)
                 try:
                     if browser is not None:
-                        result = func(*args, **kwargs, browser = driver)
+                        result = func(*args, **kwargs, browser=driver)
                     else:
                         result = func(*args, **kwargs)
                 except AssertionError as ae:
@@ -70,21 +91,21 @@ def testcase(tag: list[str] = None, browser=None):
                     if browser is not None:
                         driver.quit()
                     print(f"After executing the {func.__name__}")
+
+        wrapper._is_testcase = True
+        if tag is not None:
+            testcase_functions.append(wrapper)
         return wrapper
+
     return decorator
 
 
-def get_decorators(function):
-    source = inspect.getsource(function)
-    index = source.find("def ")
-    return [
-        line.strip().split()[0]
-        for line in source[:index].strip().splitlines()
-        if line.strip().startswith("@")
-    ]
+def is_decorated_with_testcase(func):
+    return any(func == decorated_func for decorated_func in testcase_functions)
 
 
-testcase_storage = {}
+def is_decorated_with_beforetest(func):
+    return any(func == decorated_func for decorated_func in beforetest_functions)
 
 def is_testcase_present(file_path):
     with open(file_path, "r", encoding="utf-8") as file:
@@ -93,6 +114,7 @@ def is_testcase_present(file_path):
             return True
         else:
             return False
+
 
 def remove_cache_directories(directory, folder_name):
     for root, dirs, files in os.walk(directory):
@@ -112,12 +134,10 @@ def remove_cache_directories(directory, folder_name):
             except Exception as e:
                 print(f"Error removing {folder_name} directory: {e}")
 
-def execute_tests(max_threads:int = 1):
+
+def execute_tests(max_threads: int = 1):
     for module_name in os.listdir(test_dir):
-        if (
-            module_name.endswith(".py")
-            and module_name != "__init__.py"
-        ):
+        if module_name.endswith(".py") and module_name != "__init__.py":
             module_path = os.path.join(test_dir, module_name)
             if is_testcase_present(module_path):
                 module_name = module_name[:-3]
@@ -126,25 +146,33 @@ def execute_tests(max_threads:int = 1):
                     if inspect.isfunction(obj):
                         if obj.__closure__ is not None:
                             for cell in obj.__closure__:
-                                if isinstance(cell.cell_contents, type(execute_tests)):
+                                if isinstance(
+                                    cell.cell_contents, type(execute_tests)
+                                ) and is_decorated_with_beforetest(obj):
+                                    beforetest_storage[f"{module_name}.{name}"] = obj
+                                elif isinstance(
+                                    cell.cell_contents, type(execute_tests)
+                                ) and is_decorated_with_testcase(obj):
                                     testcase_storage[f"{module_name}.{name}"] = obj
-    next_execution(max_threads)
-    remove_cache_directories(project_dir,"__pycache__")  
+                                
 
+                                    
+    next_execution(max_threads)
+    remove_cache_directories(project_dir, "__pycache__")
 
 
 def next_execution(max_threads):
     test_results = {}
-
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_threads) as executor:
-        futures = {
-            executor.submit(value): key for key, value in testcase_storage.items()
-        }
+        futures = []
 
-        for future in concurrent.futures.as_completed(futures):
-            if future.result() is None:
-                continue
-            key = futures[future]
+        for key, value in testcase_storage.items():
+            for before_key, before_value in beforetest_storage.items():
+                before_value()
+            future = executor.submit(value)
+            futures.append((key, future))
+
+        for key, future in futures:
             test_results[key] = {}
 
             try:
@@ -164,7 +192,7 @@ def next_execution(max_threads):
             print(f"\n\033[91m{method_name}: Failed\033[0m \n{result['error']}")
         else:
             print(f"\n\033[92m{method_name}: Passed\033[0m")
-    
+
 
 class Browser(Chrome, Firefox, Edge):
     pass
