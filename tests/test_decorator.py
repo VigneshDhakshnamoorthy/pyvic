@@ -1,5 +1,5 @@
 import inspect
-from core.kmdv.base.test_base import Browser, get_driver, testcase
+from core.pyvic.base.test_base import Browser, get_driver, testcase
 from time import sleep
 def tester(func):
     pass
