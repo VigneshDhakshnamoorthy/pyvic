@@ -49,27 +49,27 @@ def beforetest(func):
 def testcase(tag: list[str] = None, browser=None):
     def decorator(func):
         def wrapper(*args, **kwargs):
-            if browser is not None:
-                driver:Chrome | Edge | Firefox = get_driver(browser)
-            try:
+            if tag is not None:               
                 if browser is not None:
-                    print(type(browser) == str)
-                    result = func(*args, **kwargs, browser = driver)
-                else:
-                    result = func(*args, **kwargs)
-            except AssertionError as ae:
-                if ae.args:
-                    return None, ae.args[0]
-                else:
+                    driver:Chrome | Edge | Firefox = get_driver(browser)
+                try:
+                    if browser is not None:
+                        result = func(*args, **kwargs, browser = driver)
+                    else:
+                        result = func(*args, **kwargs)
+                except AssertionError as ae:
+                    if ae.args:
+                        return None, ae.args[0]
+                    else:
+                        return None, traceback.format_exc()
+                except Exception as e:
                     return None, traceback.format_exc()
-            except Exception as e:
-                return None, traceback.format_exc()
-            else:
-                return result, None
-            finally:
-                if browser is not None:
-                    driver.quit()
-                print(f"After executing the {func.__name__}")
+                else:
+                    return result, None
+                finally:
+                    if browser is not None:
+                        driver.quit()
+                    print(f"After executing the {func.__name__}")
         return wrapper
     return decorator
 
@@ -142,6 +142,8 @@ def next_execution(max_threads):
         }
 
         for future in concurrent.futures.as_completed(futures):
+            if future.result() is None:
+                continue
             key = futures[future]
             test_results[key] = {}
 
